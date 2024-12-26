@@ -1,0 +1,92 @@
+#Read in the data set
+data = read.table(exp_data, head=T, row.names=1);
+multiExpr = t(data);
+Checking data for excessive missing values
+gsg = goodSamplesGenes(multiExpr, verbose = 3);
+#Plot 1 samples cluster
+sampleTree = hclust(dist(multiExpr), method = "average");
+sizeGrWindow(12,9)
+pdf(file = "sampleClustering.pdf", width = 12, height = 9);
+par(cex = 0.6);
+par(mar = c(0,4,2,0))
+plot(sampleTree, main = "Sample clustering to detect outliers",
+sub="", xlab="", cex.lab = 1.5,cex.axis = 1.5, cex.main = 2)
+dev.off()
+# Choose a set of soft‐thresholding powers
+powers = c(c(1:10), seq(from = 12, to=30, by=2))
+# Call the network topology analysis function
+sft = pickSoftThreshold(multiExpr, powerVector = powers, verbose = 5 )
+save(sft, file = "01‐sftpower.RData")
+#Plot 2 selected power
+pdf(file ="Network_power.pdf", width = 9, height = 5);
+par(mfrow = c(1,2));
+cex1 = 0.9;
+# Scale‐free topology fit index as a function of the soft‐thresholdingpower
+plot(sft$fitIndices[,1], ‐sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+xlab="Soft Threshold (power)",ylab="Scale Free Topology ModelFit,signed R^2",type="n",
+main = paste("Scale independence"));
+text(sft$fitIndices[,1], ‐sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+labels=powers,cex=cex1,col="red");
+abline(h=0.85,col="red")
+# Mean connectivity as a function of the soft‐thresholding power
+plot(sft$fitIndices[,1], sft$fitIndices[,5],
+xlab="Soft Threshold (power)",ylab="Mean Connectivity", type="n",
+main = paste("Mean connectivity"))
+text(sft$fitIndices[,1], sft$fitIndices[,5], labels=powers,
+cex=cex1,col="red")
+dev.off()
+# Select power
+softPower <‐ sft$powerEstimate
+#Plot 3 检验选定的β值下记忆网络是否逼近 scale free
+k <‐ softConnectivity(datE=multiExpr,power=softPower)
+pdf(file = "Check_Scalefree.pdf", width = 10, height = 5)
+par(mfrow=c(1,2))
+hist(k)
+scaleFreePlot(k,main="Check Scale free topology\n")
+adjacency = adjacency(multiExpr, power = softPower);
+TOM = TOMsimilarity(adjacency);
+dissTOM = 1‐TOM
+geneTree = hclust(as.dist(dissTOM),method="average");
+minModuleSize = 30
+dynamicMods = cutreeDynamic(dendro = geneTree, distM = dissTOM,
+minClusterSize = minModuleSize);
+table(dynamicMods)
+dynamicColors = labels2colors(dynamicMods)
+table(dynamicColors)
+#Plot 4 plot the dendrogram and colors underneath
+pdf(file = "GeneDendrogramColors.pdf", width = 12, height = 9);
+sizeGrWindow(12,9)
+plotDendroAndColors(geneTree, dynamicColors,
+"Dynamic Tree Cut",
+dendroLabels = FALSE, hang = 0.03,
+addGuide = TRUE, guideHang = 0.05,
+main = "Gene dendrogram and module colors")
+dev.off()
+MEList = moduleEigengenes(multiExpr, colors = dynamicColors)
+MEs = MEList$eigengenes
+MEDiss = 1‐cor(MEs);
+METree = hclust(as.dist(MEDiss), method = "average");
+#Plot 5 merge the dendrogram and colors underneath for similar module
+pdf(file = "Clustering_similar_module.pdf", width = 12, height = 9);
+sizeGrWindow(12, 9)
+plot(METree, main = "Clustering of similar module eigengenes",
+xlab = "", sub = "")
+MEDissThres = 0.25
+abline(h=MEDissThres, col = "red")
+dev.off()
+merge = mergeCloseModules(multiExpr, dynamicColors, cutHeight =
+MEDissThres, verbose = 3)
+mergedColors = merge$colors;
+mergedMEs = merge$newMEs;
+#Plot 6 plot the gene dendrogram again, with the original and merged
+module colors underneath
+pdf(file = "Merged_GeneDendrogramColors.pdf", width = 12, height = 9)
+sizeGrWindow(12, 9)
+plotDendroAndColors(geneTree, cbind(dynamicColors, mergedColors), c("Dynamic Tree Cut", "Merged dynamic"),
+dendroLabels = FALSE, hang = 0.03, addGuide = TRUE, guideHang = 0.05)
+dev.off()
+moduleColors = mergedColors
+colorOrder = c("grey", standardColors(50));
+moduleLabels = match(moduleColors, colorOrder)‐1;
+MEs = mergedMEs;
+save(MEs, moduleLabels, moduleColors, geneTree, file = "02‐networkConstruction‐stepByStep.RData")

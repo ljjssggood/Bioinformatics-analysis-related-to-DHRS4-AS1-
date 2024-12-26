@@ -1,0 +1,79 @@
+library(survival)
+library(survminer)
+library(ggplot2)
+library(glmnet)
+data(cr)
+ss <- sample(1:nrow(cr), round(nrow(cr)*0.7))
+crs1 <- cr[ss,]
+ crs2 <- cr[-ss,]
+xmt <- as.matrix(crs1[, names(crs1) %in% gene_nw])
+ymt <- as.matrix(crs1[, c('time', 'status')])
+cvfit <- cv.glmnet(xmt, ymt, family = "cox")
+ risk.train <- predict(cvfit, newx=xmt, s = "lambda.min", type='response')
+risk.test <- predict(cvfit, newx=as.matrix(crs2[, names(crs2) %in% gene_nw]), s = "lambda.min", type='response')
+risk.all <- predict(cvfit, newx=as.matrix(cr[, names(cr) %in% gene_nw]), s = "lambda.min", type='response')
+xmt <- as.matrix(crs1[, names(crs1) %in% gene_nw])
+ymt <- as.matrix(crs1[, c('time', 'status')])
+
+fit <- glmnet(xmt, ymt, family = "cox")
+cvfit <- cvfit.selected
+pdf(paste(odir, '/lasso_fit.pdf', sep=''))
+plot(fit, xvar="lambda", label=TRUE)
+abline(v=log(cvfit$lambda.min), col='red')
+text(x=log(cvfit$lambda.min), y=min(fit$beta), labels=paste('lambda = ', round(cvfit$lambda.min, 4), sep=''), col='red')
+dev.off()
+
+png(paste(odir, '/lasso_fit.png', sep=''), res=600, units='in', width=5, height=5)
+plot(fit, xvar="lambda", label=TRUE)
+abline(v=log(cvfit$lambda.min), col='red')
+text(x=log(cvfit$lambda.min), y=min(fit$beta), labels=paste('lambda = ', round(cvfit$lambda.min, 4), sep=''), col='red')
+dev.off()
+
+png(paste(odir, '/lasso_cross_validation.png', sep=''), res=600, units='in', width=5, height=5)
+plot(cvfit)
+dev.off()
+
+pdf(paste(odir, '/lasso_cross_validation.pdf', sep=''))
+plot(cvfit)
+
+dev.off()
+
+saveRDS(cvfit, file=paste(opt$out, '/cv.glmnet.rds', sep=''))
+coef.min = as.matrix(coef(cvfit, s = "lambda.min"))
+active.min = which(coef.min != 0)
+od <- data.frame(Gene=row.names(coef.min)[active.min], Coef=coef.min[active.min])
+if(nrow(od) < 1 ){
+        stop('No gene retained.')
+}
+lco <- data.frame(Gene=row.names(coef.min), Coef=coef.min[,1])
+lco$Gene <- translate(lco$Gene, gene_nw, gene)
+write.table(lco, file=paste(odir, '/lasso_coefficient.txt', sep=''), quote=F, sep='\t', row.names=F)
+
+## target gene COX
+ucd <- uv_cox(da=cr, var=translate(od$Gene, gene_nw, gene), pdir=paste(odir, '/all_gnen_', sep=''))
+write.table(ucd, file=paste(odir, '/all_gnen_Univariate_Cox_Regression_result.txt', sep=''), sep='\t', quote=F, row.names=F)
+mcd <- mv_cox(da=cr, var=translate(od$Gene, gene_nw, gene), pdir=paste(odir, '/all_gnen_', sep=''))
+write.table(mcd, file=paste(odir, '/all_gnen_Multivariate_Cox_Regression_result.txt', sep=''), sep='\t', quote=F, row.names=F)
+## Internal validation
+# survival analysis
+colors <- get(paste('pal_', opt$pal, sep=''))()(7)
+p <- sur_ana(gn='risk', da=dsr.train.selected, title=sur.title, color=colors, split.median=opt$median)
+ggsave(paste(odir, '/Internal_validate_train_survival.pdf', sep=''), plot=p$plot, width=6, height=6, units='in')
+ggsave(paste(odir, '/Internal_validate_train_survival.png', sep=''), plot=p$plot, width=6, height=6, units='in', dpi=600)
+
+res <- sur_roc(gene='risk', da=dsr.train.selected, time.use=top3.auc$time, color=colors)
+ggsave(paste(odir, '/Internal_validate_train_ROC.pdf', sep=''), plot=res$plot, width=5, height=5, units='in')
+ggsave(paste(odir, '/Internal_validate_train_ROC.png', sep=''), plot=res$plot, width=5, height=5, units='in', dpi=600)
+
+write.table(data.frame(Sample=rownames(dsr.train.selected), dsr.train.selected), paste(odir, '/Internal_validate_train_data.txt', sep=
+''), sep='\t', quote=F, row.names=F)
+
+p <- sur_ana(gn='risk', da=dsr.test.selected, title=sur.title, color=colors, split.median=opt$median)
+ggsave(paste(odir, '/Internal_validate_test_survival.pdf', sep=''), plot=p$plot, width=6, height=6, units='in')
+ggsave(paste(odir, '/Internal_validate_test_survival.png', sep=''), plot=p$plot, width=6, height=6, units='in', dpi=600)
+
+res <- sur_roc(gene='risk', da=dsr.test.selected, time.use=top3.auc$time, color=colors)
+ggsave(paste(odir, '/Internal_validate_test_ROC.pdf', sep=''), plot=res$plot, width=5, height=5, units='in')
+ggsave(paste(odir, '/Internal_validate_test_ROC.png', sep=''), plot=res$plot, width=5, height=5, units='in', dpi=600)
+
+write.table(data.frame(Sample=rownames(dsr.test.selected), dsr.test.selected), paste(odir, '/Internal_validate_test_data.txt', sep=''), sep='\t', quote=F, row.names=F)
